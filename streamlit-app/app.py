@@ -4,6 +4,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pyarrow.parquet as pq
 import pyarrow as pa
+import requests
+import io
+import time
 
 st.set_page_config(
     page_title="Spotify Big Data Dashboard",
@@ -54,10 +57,35 @@ clustered["cluster_name"] = clustered["cluster"].map(
     lambda x: cluster_labels.get(x, f"Cluster {x}")
 )
 
+WEBHDFS = "http://namenode:9870/webhdfs/v1"
+
+@st.cache_data(ttl=30)
+def load_streaming_data():
+    path = "/spotify/streaming/tracks"
+    try:
+        url = f"{WEBHDFS}{path}?op=LISTSTATUS"
+        files = requests.get(url, timeout=5).json()["FileStatuses"]["FileStatus"]
+        parquet_files = [f for f in files if f["pathSuffix"].endswith(".parquet")]
+        if not parquet_files:
+            return pd.DataFrame()
+        dfs = []
+        for f in parquet_files[:20]:
+            file_url = f"{WEBHDFS}{path}/{f['pathSuffix']}?op=OPEN"
+            resp = requests.get(file_url, allow_redirects=True, timeout=10)
+            dfs.append(pq.read_table(io.BytesIO(resp.content)).to_pandas())
+        df = pd.concat(dfs, ignore_index=True)
+        for col in ["popularity", "danceability", "energy", "valence"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+    except Exception as e:
+        st.warning(f"HDFS streaming not available: {e}")
+        return pd.DataFrame()
+
 st.sidebar.title("Spotify Analytics")
 st.sidebar.markdown("---")
 page = st.sidebar.radio("Navigation", [
-    "Overview", "Genre Analysis", "Cluster Analysis", "Top Tracks",
+    "Overview", "Genre Analysis", "Cluster Analysis", "Top Tracks", "Live Stream",
 ])
 st.sidebar.markdown("---")
 st.sidebar.metric("Total Tracks", f"{len(cleaned):,}")
@@ -215,3 +243,58 @@ elif page == "Top Tracks":
                  color_discrete_sequence=px.colors.qualitative.Set2)
     fig.update_layout(height=400, xaxis_tickangle=-45, xaxis_title="")
     st.plotly_chart(fig, use_container_width=True)
+
+elif page == "Live Stream":
+    st.title("Live Stream — Deezer via Kafka")
+    st.markdown("*Đọc trực tiếp từ HDFS streaming path, auto-refresh mỗi 30 giây*")
+    st.markdown("---")
+
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("Refresh now"):
+            st.cache_data.clear()
+            st.rerun()
+    with col2:
+        st.caption(f"Last updated: {time.strftime('%H:%M:%S')}")
+
+    df_stream = load_streaming_data()
+
+    if df_stream.empty:
+        st.info("Chưa có streaming data. Chạy 03_kafka_producer.py và 03_spark_streaming.py trước.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total records ingested", f"{len(df_stream):,}")
+        c2.metric("Genres", f"{df_stream['track_genre'].nunique()}")
+        c3.metric("Avg Popularity", f"{df_stream['popularity'].mean():.1f}")
+        st.markdown("---")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Tracks per Genre")
+            genre_counts = df_stream["track_genre"].value_counts().reset_index()
+            genre_counts.columns = ["genre", "count"]
+            fig = px.bar(genre_counts, x="genre", y="count",
+                         color="count", color_continuous_scale="Teal")
+            fig.update_layout(height=400, xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with c2:
+            st.subheader("Popularity Tier Distribution")
+            if "popularity_tier" in df_stream.columns:
+                tier_counts = df_stream["popularity_tier"].value_counts().reset_index()
+                tier_counts.columns = ["tier", "count"]
+                fig = px.pie(tier_counts, values="count", names="tier",
+                             color_discrete_sequence=px.colors.qualitative.Set2)
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Latest 50 tracks ingested")
+        cols = ["track_name", "artists", "track_genre", "popularity",
+                "popularity_tier", "energy_level", "ingestion_time"]
+        show_cols = [c for c in cols if c in df_stream.columns]
+        st.dataframe(
+            df_stream[show_cols].sort_values("ingestion_time", ascending=False).head(50)
+            if "ingestion_time" in df_stream.columns
+            else df_stream[show_cols].head(50),
+            use_container_width=True, height=400
+        )

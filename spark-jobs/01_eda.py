@@ -13,7 +13,6 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("WARN")
 
 schema = StructType([
-    StructField("index", StringType(), True),
     StructField("track_id", StringType(), True),
     StructField("artists", StringType(), True),
     StructField("album_name", StringType(), True),
@@ -39,7 +38,7 @@ schema = StructType([
 df = spark.read \
     .option("header", "true") \
     .schema(schema) \
-    .csv("hdfs://namenode:9000/spotify/raw/spotify_tracks.csv")
+    .csv("hdfs://namenode:9000/spotify/raw/deezer_tracks.csv")
 
 df = df.dropna().dropDuplicates()
 print(f"Loaded {df.count()} rows after cleaning")

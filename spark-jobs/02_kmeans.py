@@ -17,7 +17,7 @@ spark.sparkContext.setLogLevel("WARN")
 df = spark.read \
     .option("header", "true") \
     .option("inferSchema", "true") \
-    .csv("hdfs://namenode:9000/spotify/raw/spotify_tracks.csv")
+    .csv("hdfs://namenode:9000/spotify/raw/deezer_tracks.csv")
 
 if "_c0" in df.columns:
     df = df.drop("_c0")
