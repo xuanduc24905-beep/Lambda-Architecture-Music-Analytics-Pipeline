@@ -1,7 +1,3 @@
-data/
-*.parquet
-*.csv
-*.jar
 .env
 .cache
 __pycache__/
