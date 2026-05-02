@@ -3,7 +3,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
 spark = SparkSession.builder \
-    .appName("Spotify Kafka Streaming") \
+    .appName("Music Kafka Streaming") \
     .master("spark://spark-master:7077") \
     .config("spark.executor.memory", "4g") \
     .config("spark.executor.cores", "2") \
@@ -38,7 +38,7 @@ schema = StructType([
 df_kafka = spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "kafka:9092") \
-    .option("subscribe", "spotify-stream") \
+    .option("subscribe", "music-stream") \
     .option("startingOffsets", "earliest") \
     .option("failOnDataLoss", "false") \
     .load()
@@ -68,8 +68,8 @@ df_processed = df_parsed \
 
 query_hdfs = df_processed.writeStream \
     .format("parquet") \
-    .option("path", "hdfs://namenode:9000/spotify/streaming/tracks") \
-    .option("checkpointLocation", "hdfs://namenode:9000/spotify/streaming/checkpoint") \
+    .option("path", "hdfs://namenode:9000/music/streaming/tracks") \
+    .option("checkpointLocation", "hdfs://namenode:9000/music/streaming/checkpoint") \
     .outputMode("append") \
     .trigger(processingTime="10 seconds") \
     .start()

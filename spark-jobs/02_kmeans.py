@@ -5,7 +5,7 @@ from pyspark.ml.clustering import KMeans
 from pyspark.ml.evaluation import ClusteringEvaluator
 
 spark = SparkSession.builder \
-    .appName("Spotify KMeans") \
+    .appName("Music KMeans") \
     .master("spark://spark-master:7077") \
     .config("spark.executor.memory", "4g") \
     .config("spark.executor.cores", "2") \
@@ -17,7 +17,7 @@ spark.sparkContext.setLogLevel("WARN")
 df = spark.read \
     .option("header", "true") \
     .option("inferSchema", "true") \
-    .csv("hdfs://namenode:9000/spotify/raw/deezer_tracks.csv")
+    .csv("hdfs://namenode:9000/music/raw/deezer_tracks.csv")
 
 if "_c0" in df.columns:
     df = df.drop("_c0")
@@ -77,7 +77,7 @@ df_result = df_clustered.select(
 )
 
 df_result.write.mode("overwrite") \
-    .parquet("hdfs://namenode:9000/spotify/processed/clustered")
+    .parquet("hdfs://namenode:9000/music/processed/clustered")
 
 df_clustered.groupBy("prediction").agg(
     F.count("*").alias("track_count"),
@@ -86,7 +86,7 @@ df_clustered.groupBy("prediction").agg(
     F.round(F.avg("energy"), 3).alias("avg_energy"),
     F.round(F.avg("valence"), 3).alias("avg_valence"),
 ).write.mode("overwrite") \
- .parquet("hdfs://namenode:9000/spotify/processed/cluster_stats")
+ .parquet("hdfs://namenode:9000/music/processed/cluster_stats")
 
 print(f"KMeans complete. Best k={best_k}")
 spark.stop()

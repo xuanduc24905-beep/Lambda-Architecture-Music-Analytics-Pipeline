@@ -2,7 +2,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 spark = SparkSession.builder \
-    .appName("Spotify Hive Query") \
+    .appName("Music Hive Query") \
     .master("spark://spark-master:7077") \
     .config("spark.executor.memory", "4g") \
     .config("spark.sql.warehouse.dir", "hdfs://namenode:9000/user/hive/warehouse") \
@@ -13,12 +13,12 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel("WARN")
 
-spark.sql("CREATE DATABASE IF NOT EXISTS spotify")
-spark.sql("USE spotify")
+spark.sql("CREATE DATABASE IF NOT EXISTS music")
+spark.sql("USE music")
 
-cleaned = spark.read.parquet("hdfs://namenode:9000/spotify/processed/cleaned")
-clustered = spark.read.parquet("hdfs://namenode:9000/spotify/processed/clustered")
-genre_stats = spark.read.parquet("hdfs://namenode:9000/spotify/processed/genre_stats")
+cleaned = spark.read.parquet("hdfs://namenode:9000/music/processed/cleaned")
+clustered = spark.read.parquet("hdfs://namenode:9000/music/processed/clustered")
+genre_stats = spark.read.parquet("hdfs://namenode:9000/music/processed/genre_stats")
 
 cleaned.createOrReplaceTempView("tracks_cleaned")
 clustered.createOrReplaceTempView("tracks_clustered")

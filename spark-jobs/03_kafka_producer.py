@@ -113,7 +113,7 @@ def stream_to_kafka(tracks, label):
     count = 0
     for track in tracks:
         producer.send(
-            topic="spotify-stream",
+            topic="music-stream",
             key=str(track.get("track_id", count)),
             value=track
         )

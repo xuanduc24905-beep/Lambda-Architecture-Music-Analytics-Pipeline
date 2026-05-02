@@ -9,7 +9,7 @@ import io
 import time
 
 st.set_page_config(
-    page_title="Spotify Big Data Dashboard",
+    page_title="Real-time Music Analytics",
     page_icon="🎵",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -61,7 +61,7 @@ WEBHDFS = "http://namenode:9870/webhdfs/v1"
 
 @st.cache_data(ttl=30)
 def load_streaming_data():
-    path = "/spotify/streaming/tracks"
+    path = "/music/streaming/tracks"
     try:
         url = f"{WEBHDFS}{path}?op=LISTSTATUS"
         files = requests.get(url, timeout=5).json()["FileStatuses"]["FileStatus"]
@@ -82,7 +82,7 @@ def load_streaming_data():
         st.warning(f"HDFS streaming not available: {e}")
         return pd.DataFrame()
 
-st.sidebar.title("Spotify Analytics")
+st.sidebar.title("Music Analytics")
 st.sidebar.markdown("---")
 page = st.sidebar.radio("Navigation", [
     "Overview", "Genre Analysis", "Cluster Analysis", "Top Tracks", "Live Stream",
@@ -93,8 +93,8 @@ st.sidebar.metric("Total Genres", f"{cleaned['track_genre'].nunique()}")
 st.sidebar.metric("Total Artists", f"{cleaned['artists'].nunique():,}")
 
 if page == "Overview":
-    st.title("Spotify Tracks — Big Data Dashboard")
-    st.markdown("*114K tracks · Spark + HDFS + Hive + KMeans Clustering*")
+    st.title("Real-time Music Analytics Dashboard")
+    st.markdown("*Deezer · Kafka · Spark · HDFS · Hive · KMeans*")
     st.markdown("---")
 
     c1, c2, c3, c4 = st.columns(4)

@@ -3,7 +3,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import *
 
 spark = SparkSession.builder \
-    .appName("Spotify EDA") \
+    .appName("Music EDA") \
     .master("spark://spark-master:7077") \
     .config("spark.executor.memory", "4g") \
     .config("spark.executor.cores", "2") \
@@ -38,7 +38,7 @@ schema = StructType([
 df = spark.read \
     .option("header", "true") \
     .schema(schema) \
-    .csv("hdfs://namenode:9000/spotify/raw/deezer_tracks.csv")
+    .csv("hdfs://namenode:9000/music/raw/deezer_tracks.csv")
 
 df = df.dropna().dropDuplicates()
 print(f"Loaded {df.count()} rows after cleaning")
@@ -93,7 +93,7 @@ for feature in features:
     print(f"  popularity vs {feature:20s}: {corr:.4f}")
 
 print("\n--- Saving to HDFS ---")
-df.write.mode("overwrite").parquet("hdfs://namenode:9000/spotify/processed/cleaned")
+df.write.mode("overwrite").parquet("hdfs://namenode:9000/music/processed/cleaned")
 
 df.groupBy("track_genre").agg(
     F.count("*").alias("track_count"),
@@ -103,7 +103,7 @@ df.groupBy("track_genre").agg(
     F.round(F.avg("valence"), 3).alias("avg_valence")
 ).orderBy(F.desc("track_count")) \
  .write.mode("overwrite") \
- .parquet("hdfs://namenode:9000/spotify/processed/genre_stats")
+ .parquet("hdfs://namenode:9000/music/processed/genre_stats")
 
 print("EDA complete")
 spark.stop()

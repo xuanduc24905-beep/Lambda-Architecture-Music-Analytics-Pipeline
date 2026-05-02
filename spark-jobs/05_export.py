@@ -8,7 +8,7 @@ spark = SparkSession.builder \
 spark.sparkContext.setLogLevel("WARN")
 
 for name in ["cleaned", "clustered", "genre_stats", "cluster_stats"]:
-    df = spark.read.parquet(f"hdfs://namenode:9000/spotify/processed/{name}")
+    df = spark.read.parquet(f"hdfs://namenode:9000/music/processed/{name}")
     df.toPandas().to_parquet(f"/data/{name}.parquet", index=False)
     print(f"Exported {name}")
 
