@@ -1,36 +1,37 @@
-# Deezer Big Data Pipeline
+# Real-time Music Analytics Pipeline
 
-Real-time music data pipeline using Deezer API, Apache Kafka, Spark, HDFS, Hive, and Streamlit.
+Pipeline xử lý và phân tích dữ liệu âm nhạc theo thời gian thực, sử dụng Deezer API, Apache Kafka, Spark Structured Streaming, HDFS, Hive và Streamlit.
 
-## Architecture
+## Kiến trúc tổng thể
 
 ```
 Deezer API
     │
     ├── Batch (00_deezer_batch.py)
-    │       └── CSV → HDFS → Spark EDA + KMeans → Parquet
+    │       └── CSV → HDFS → Spark EDA + KMeans → Parquet → Streamlit
     │
     └── Streaming (03_kafka_producer.py)
-            └── Kafka → Spark Streaming → HDFS (append)
-                                              │
-                                         Streamlit Dashboard
+            └── CSV tracks → Kafka topic "music-stream"
+                    └── Spark Structured Streaming → HDFS (append)
+                                                        │
+                                                   Streamlit Live Stream
 ```
 
 ## Stack
 
-| Component | Technology |
+| Thành phần | Công nghệ |
 |---|---|
-| Data source | Deezer API (no auth required) |
-| Message queue | Apache Kafka |
-| Processing | Apache Spark (MLlib, Structured Streaming) |
-| Storage | Hadoop HDFS |
-| Data warehouse | Apache Hive |
-| Dashboard | Streamlit |
-| Infrastructure | Docker Compose |
+| Nguồn dữ liệu | Deezer API (không cần xác thực) |
+| Message queue | Apache Kafka + Zookeeper |
+| Xử lý | Apache Spark 3.5 (MLlib, Structured Streaming) |
+| Lưu trữ | Hadoop HDFS (1 namenode + 2 datanode) |
+| Data warehouse | Apache Hive + PostgreSQL metastore |
+| Dashboard | Streamlit (5 trang, tự động refresh theo giây) |
+| Hạ tầng | Docker Compose (12 containers) |
 
-## Setup
+## Cài đặt
 
-**Prerequisites:** Docker, Docker Compose
+**Yêu cầu:** Docker, Docker Compose
 
 ```bash
 git clone https://github.com/xuanduc24905-beep/Real-time-Music-Analytics-Pipeline-.git
@@ -38,74 +39,97 @@ cd Real-time-Music-Analytics-Pipeline-
 docker compose up -d
 ```
 
-## Running the Pipeline
+Chờ khoảng 2 phút để tất cả service khởi động xong.
 
-**Step 1 — Fetch batch data from Deezer:**
+## Chạy pipeline
+
+### Cách 1 — Tự động (khuyến nghị)
+
 ```bash
-python spark-jobs/00_deezer_batch.py
+./run_pipeline.sh
 ```
 
-**Step 2 — Upload to HDFS:**
+Script tự động chạy toàn bộ 6 bước batch, sau đó hiển thị hướng dẫn chạy streaming.
+
+### Cách 2 — Thủ công từng bước
+
+**Bước 1 — Cào dữ liệu từ Deezer API:**
 ```bash
-docker exec -it namenode bash -c "hdfs dfs -mkdir -p /music/raw && hdfs dfs -put -f /data/deezer_tracks.csv /music/raw/"
+docker exec spark-master python /spark-jobs/00_deezer_batch.py
 ```
 
-**Step 3 — EDA + cleaning:**
+**Bước 2 — Upload lên HDFS:**
 ```bash
-docker exec -it spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/01_eda.py"
+docker exec namenode bash -c "hdfs dfs -mkdir -p /music/raw && hdfs dfs -put -f /data/deezer_tracks.csv /music/raw/"
 ```
 
-**Step 4 — KMeans clustering:**
+**Bước 3 — EDA + làm sạch dữ liệu:**
 ```bash
-docker exec -it spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/02_kmeans.py"
+docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/01_eda.py"
 ```
 
-**Step 5 — Hive queries:**
+**Bước 4 — KMeans clustering:**
 ```bash
-docker exec -it spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/04_hive_query.py"
+docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/02_kmeans.py"
 ```
 
-**Step 6 — Export to Streamlit:**
+**Bước 5 — Truy vấn Hive:**
 ```bash
-docker exec -it spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/05_export.py"
+docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/04_hive_query.py"
 ```
 
-**Step 7 — Real-time streaming (2 terminals):**
+**Bước 6 — Export ra local:**
 ```bash
-# Terminal 1
-docker exec -it spark-master bash -c "python /spark-jobs/03_kafka_producer.py"
-
-# Terminal 2
-docker exec -it spark-master bash -c "spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 /spark-jobs/03_spark_streaming.py"
+docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/05_export.py"
 ```
+
+## Streaming thời gian thực
+
+Mở 2 terminal sau khi batch pipeline chạy xong:
+
+```bash
+# Terminal 1 — Kafka producer (đẩy từng track liên tục từ CSV)
+docker exec -it spark-master python /spark-jobs/03_kafka_producer.py
+
+# Terminal 2 — Spark Structured Streaming ghi xuống HDFS
+docker exec -it spark-master bash -c \
+  "spark-submit --master spark://spark-master:7077 \
+   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0 \
+   /spark-jobs/03_spark_streaming.py"
+```
+
+Producer đọc từ CSV và gửi ~20 track/giây vào Kafka. Spark tiêu thụ và ghi xuống HDFS mỗi giây. Dashboard trang Live Stream tự refresh mỗi giây.
 
 ## Dashboard
 
-Open `http://localhost:8501`
+Truy cập `http://localhost:8501`
 
-Pages:
-- **Overview** — general stats, popularity distribution, scatter plots
-- **Genre Analysis** — top genres, audio features comparison
-- **Cluster Analysis** — KMeans results, audio profile per cluster
-- **Top Tracks** — filter by genre, popularity ranking
-- **Live Stream** — real-time data from HDFS streaming path
+| Trang | Nội dung |
+|---|---|
+| Overview | Thống kê tổng quan, top genre, scatter plot theo cluster |
+| Genre Analysis | Số lượng track và audio features theo từng genre |
+| Cluster Analysis | Kết quả KMeans, hồ sơ âm thanh theo cluster |
+| Top Tracks | Lọc theo genre, xếp hạng theo độ phổ biến |
+| Live Stream | Dữ liệu thời gian thực từ HDFS, tự động cập nhật mỗi giây |
 
 ## Spark Jobs
 
-| File | Description |
+| File | Mô tả |
 |---|---|
-| `00_deezer_batch.py` | Fetch ~12K tracks from Deezer API by genre |
-| `01_eda.py` | EDA, data cleaning, genre stats |
-| `02_kmeans.py` | KMeans clustering (k=3~8, elbow method) |
-| `03_kafka_producer.py` | Stream Deezer data to Kafka every 2 minutes |
-| `03_spark_streaming.py` | Consume Kafka, write to HDFS |
-| `04_hive_query.py` | Analytical queries via Hive |
-| `05_export.py` | Export HDFS parquet to local for Streamlit |
+| `00_deezer_batch.py` | Cào ~12K tracks từ Deezer API (12 thể loại) |
+| `01_eda.py` | EDA, làm sạch dữ liệu, thống kê theo genre → HDFS Parquet |
+| `02_kmeans.py` | KMeans clustering k=3~8 (elbow + silhouette) → HDFS Parquet |
+| `03_kafka_producer.py` | Stream từng track từ CSV vào Kafka liên tục |
+| `03_spark_streaming.py` | Tiêu thụ Kafka, enrich data, ghi append xuống HDFS |
+| `04_hive_query.py` | Truy vấn phân tích qua Hive (top genre, cluster, explicit) |
+| `05_export.py` | Export HDFS Parquet → local `/data/` cho Streamlit đọc |
 
-## UIs
+## Giao diện web
 
 | Service | URL |
 |---|---|
-| Streamlit | http://localhost:8501 |
+| Streamlit Dashboard | http://localhost:8501 |
 | Spark Master | http://localhost:8080 |
 | HDFS Namenode | http://localhost:9870 |
+| YARN Resource Manager | http://localhost:8088 |
+| HiveServer2 Web UI | http://localhost:10002 |
