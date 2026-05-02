@@ -5,8 +5,9 @@ from pyspark.sql.types import *
 spark = SparkSession.builder \
     .appName("Music Kafka Streaming") \
     .master("spark://spark-master:7077") \
-    .config("spark.executor.memory", "4g") \
-    .config("spark.executor.cores", "2") \
+    .config("spark.executor.memory", "12g") \
+    .config("spark.executor.cores", "8") \
+    .config("spark.sql.shuffle.partitions", "32") \
     .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0") \
     .getOrCreate()
 
@@ -71,7 +72,7 @@ query_hdfs = df_processed.writeStream \
     .option("path", "hdfs://namenode:9000/music/streaming/tracks") \
     .option("checkpointLocation", "hdfs://namenode:9000/music/streaming/checkpoint") \
     .outputMode("append") \
-    .trigger(processingTime="10 seconds") \
+    .trigger(processingTime="1 seconds") \
     .start()
 
 query_console = df_processed \
@@ -84,11 +85,15 @@ query_console = df_processed \
     .writeStream \
     .format("console") \
     .outputMode("complete") \
-    .trigger(processingTime="10 seconds") \
+    .trigger(processingTime="1 seconds") \
     .start()
 
-query_hdfs.awaitTermination(300)
-query_console.awaitTermination(300)
-
-print("Streaming job completed")
-spark.stop()
+try:
+    spark.streams.awaitAnyTermination()
+except KeyboardInterrupt:
+    print("Stopping streaming...")
+finally:
+    query_hdfs.stop()
+    query_console.stop()
+    spark.stop()
+    print("Streaming job stopped")

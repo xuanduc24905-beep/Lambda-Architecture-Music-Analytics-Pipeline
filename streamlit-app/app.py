@@ -65,7 +65,7 @@ def load_streaming_data():
     try:
         url = f"{WEBHDFS}{path}?op=LISTSTATUS"
         files = requests.get(url, timeout=5).json()["FileStatuses"]["FileStatus"]
-        parquet_files = [f for f in files if f["pathSuffix"].endswith(".parquet")]
+        parquet_files = [f for f in files if f.get("type") == "FILE" and ".parquet" in f["pathSuffix"]]
         if not parquet_files:
             return pd.DataFrame()
         dfs = []
@@ -246,55 +246,73 @@ elif page == "Top Tracks":
 
 elif page == "Live Stream":
     st.title("Live Stream — Deezer via Kafka")
-    st.markdown("*Đọc trực tiếp từ HDFS streaming path, auto-refresh mỗi 30 giây*")
+    st.markdown("*Đọc trực tiếp từ HDFS, cập nhật mỗi giây*")
     st.markdown("---")
 
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        if st.button("Refresh now"):
-            st.cache_data.clear()
-            st.rerun()
-    with col2:
-        st.caption(f"Last updated: {time.strftime('%H:%M:%S')}")
+    FETCH_EVERY = 1  # đọc lại HDFS mỗi giây
 
-    df_stream = load_streaming_data()
+    status     = st.empty()
+    metrics    = st.empty()
+    sep        = st.empty()
+    charts     = st.empty()
+    table_area = st.empty()
 
-    if df_stream.empty:
-        st.info("Chưa có streaming data. Chạy 03_kafka_producer.py và 03_spark_streaming.py trước.")
-    else:
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total records ingested", f"{len(df_stream):,}")
-        c2.metric("Genres", f"{df_stream['track_genre'].nunique()}")
-        c3.metric("Avg Popularity", f"{df_stream['popularity'].mean():.1f}")
-        st.markdown("---")
+    df_stream = pd.DataFrame()
+    tick = 0
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("Tracks per Genre")
-            genre_counts = df_stream["track_genre"].value_counts().reset_index()
-            genre_counts.columns = ["genre", "count"]
-            fig = px.bar(genre_counts, x="genre", y="count",
-                         color="count", color_continuous_scale="Teal")
-            fig.update_layout(height=400, xaxis_tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
+    while True:
+        # Chỉ đọc HDFS mỗi FETCH_EVERY giây để tránh overload
+        if tick % FETCH_EVERY == 0:
+            load_streaming_data.clear()
+            df_stream = load_streaming_data()
 
-        with c2:
-            st.subheader("Popularity Tier Distribution")
-            if "popularity_tier" in df_stream.columns:
-                tier_counts = df_stream["popularity_tier"].value_counts().reset_index()
-                tier_counts.columns = ["tier", "count"]
-                fig = px.pie(tier_counts, values="count", names="tier",
-                             color_discrete_sequence=px.colors.qualitative.Set2)
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+        now = time.strftime("%H:%M:%S")
+        next_fetch = FETCH_EVERY - (tick % FETCH_EVERY)
+        status.caption(f"⏱ {now}  |  HDFS refresh in {next_fetch}s")
 
-        st.subheader("Latest 50 tracks ingested")
-        cols = ["track_name", "artists", "track_genre", "popularity",
-                "popularity_tier", "energy_level", "ingestion_time"]
-        show_cols = [c for c in cols if c in df_stream.columns]
-        st.dataframe(
-            df_stream[show_cols].sort_values("ingestion_time", ascending=False).head(50)
-            if "ingestion_time" in df_stream.columns
-            else df_stream[show_cols].head(50),
-            use_container_width=True, height=400
-        )
+        if df_stream.empty:
+            metrics.info("Chưa có streaming data. Chạy 03_kafka_producer.py và 03_spark_streaming.py trước.")
+        else:
+            with metrics.container():
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total records ingested", f"{len(df_stream):,}")
+                c2.metric("Genres", f"{df_stream['track_genre'].nunique()}")
+                c3.metric("Avg Popularity", f"{df_stream['popularity'].mean():.1f}")
+
+            sep.markdown("---")
+
+            with charts.container():
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.subheader("Tracks per Genre")
+                    genre_counts = df_stream["track_genre"].value_counts().reset_index()
+                    genre_counts.columns = ["genre", "count"]
+                    fig = px.bar(genre_counts, x="genre", y="count",
+                                 color="count", color_continuous_scale="Teal")
+                    fig.update_layout(height=400, xaxis_tickangle=-45)
+                    st.plotly_chart(fig, use_container_width=True)
+
+                with c2:
+                    st.subheader("Popularity Tier Distribution")
+                    if "popularity_tier" in df_stream.columns:
+                        tier_counts = df_stream["popularity_tier"].value_counts().reset_index()
+                        tier_counts.columns = ["tier", "count"]
+                        fig = px.pie(tier_counts, values="count", names="tier",
+                                     color_discrete_sequence=px.colors.qualitative.Set2)
+                        fig.update_layout(height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+
+            with table_area.container():
+                st.subheader("Latest 50 tracks ingested")
+                cols = ["track_name", "artists", "track_genre", "popularity",
+                        "popularity_tier", "energy_level", "ingestion_time"]
+                show_cols = [c for c in cols if c in df_stream.columns]
+                st.dataframe(
+                    df_stream[show_cols].sort_values("ingestion_time", ascending=False).head(50)
+                    if "ingestion_time" in df_stream.columns
+                    else df_stream[show_cols].head(50),
+                    use_container_width=True, height=400
+                )
+
+        time.sleep(1)
+        tick += 1

@@ -33,8 +33,8 @@ Deezer API
 **Prerequisites:** Docker, Docker Compose
 
 ```bash
-git clone https://github.com/xuanduc24905-beep/spotify-bigdata-pipeline.git
-cd spotify-bigdata-pipeline
+git clone https://github.com/xuanduc24905-beep/Real-time-Music-Analytics-Pipeline-.git
+cd Real-time-Music-Analytics-Pipeline-
 docker compose up -d
 ```
 
@@ -47,7 +47,7 @@ python spark-jobs/00_deezer_batch.py
 
 **Step 2 — Upload to HDFS:**
 ```bash
-docker exec -it namenode bash -c "hdfs dfs -mkdir -p /spotify/raw && hdfs dfs -put /data/deezer_tracks.csv /spotify/raw/"
+docker exec -it namenode bash -c "hdfs dfs -mkdir -p /music/raw && hdfs dfs -put -f /data/deezer_tracks.csv /music/raw/"
 ```
 
 **Step 3 — EDA + cleaning:**

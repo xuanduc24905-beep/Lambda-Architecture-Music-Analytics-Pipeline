@@ -1,8 +1,8 @@
 version: "3.8"
 
 # =============================================================
-#  SPOTIFY BIG DATA PIPELINE
-#  Stack: Hadoop HDFS + YARN + Spark + Hive + Streamlit
+#  REAL-TIME MUSIC ANALYTICS PIPELINE (Deezer)
+#  Stack: Hadoop HDFS + YARN + Spark + Kafka + Hive + Streamlit
 #  RAM khuyến nghị: 16GB+ (máy 64GB chạy thoải mái)
 # =============================================================
 
@@ -37,7 +37,7 @@ services:
       - hadoop_namenode:/hadoop/dfs/name
       - ./data:/data   # Bind mount: để copy CSV vào đây rồi upload lên HDFS
     environment:
-      - CLUSTER_NAME=spotify-cluster
+      - CLUSTER_NAME=music-cluster
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
       - CORE_CONF_hadoop_http_staticuser_user=root
       - HDFS_CONF_dfs_replication=2
@@ -155,7 +155,7 @@ services:
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
     user: root
     command: >
-      bash -c "/usr/local/spark-3.5.0-bin-hadoop3/sbin/start-master.sh && tail -f /dev/null"
+      bash -c "pip install kafka-python -q && /usr/local/spark-3.5.0-bin-hadoop3/sbin/start-master.sh && tail -f /dev/null"
     depends_on:
       namenode:
         condition: service_healthy
@@ -178,8 +178,8 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
-      - SPARK_WORKER_MEMORY=16G
-      - SPARK_WORKER_CORES=8
+      - SPARK_WORKER_MEMORY=24G
+      - SPARK_WORKER_CORES=10
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
@@ -208,8 +208,8 @@ services:
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
-      - SPARK_WORKER_MEMORY=16G
-      - SPARK_WORKER_CORES=8
+      - SPARK_WORKER_MEMORY=24G
+      - SPARK_WORKER_CORES=10
       - SPARK_RPC_AUTHENTICATION_ENABLED=no
       - SPARK_RPC_ENCRYPTION_ENABLED=no
       - SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED=no
