@@ -4,11 +4,9 @@ import random
 import pandas as pd
 from kafka import KafkaProducer
 
-KAFKA_TOPIC = "music-stream"
-CSV_PATH = "/data/deezer_tracks.csv"
-
-# Mỗi track được gửi cách nhau bao nhiêu giây (mô phỏng tốc độ stream)
-DELAY_SECONDS = 0.01
+KAFKA_TOPIC  = "music-stream"
+CSV_PATH     = "/data/spotify_tracks.csv"
+DELAY_SECONDS = 0.01   # ~100 tracks/giây
 
 producer = KafkaProducer(
     bootstrap_servers="kafka:9092",
@@ -19,22 +17,30 @@ print("Kafka producer connected")
 
 
 def load_tracks():
-    df = pd.read_csv(CSV_PATH)
-    df = df.drop(columns=["Unnamed: 0"], errors="ignore")
+    df = pd.read_csv(CSV_PATH, low_memory=False)
+    df = df.drop(columns=[c for c in df.columns if c.startswith("Unnamed")], errors="ignore")
     df = df.dropna(subset=["track_id", "track_name"])
+
+    # Đảm bảo cột year / decade tồn tại
+    if "year" in df.columns:
+        df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    if "decade" not in df.columns and "year" in df.columns:
+        df["decade"] = (df["year"] // 10 * 10).astype("Int64").astype(str) + "s"
+
+    # Serialize: NaN → None để JSON encode được
     tracks = []
     for _, row in df.iterrows():
-        record = row.to_dict()
-        record = {k: (None if pd.isna(v) else v) for k, v in record.items()}
+        record = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}
         tracks.append(record)
-    print(f"Loaded {len(tracks)} tracks from CSV")
+
+    print(f"Loaded {len(tracks)} tracks from {CSV_PATH}")
     return tracks
 
 
-tracks = load_tracks()
+tracks  = load_tracks()
 pass_num = 0
 
-# Stream liên tục: mỗi vòng shuffle lại để thứ tự khác nhau
+# Stream liên tục: mỗi vòng shuffle để thứ tự khác nhau
 while True:
     pass_num += 1
     random.shuffle(tracks)
@@ -46,11 +52,11 @@ while True:
             key=str(track.get("track_id", i)),
             value=track,
         )
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 500 == 0:
             producer.flush()
             print(f"  sent {i + 1}/{len(tracks)}")
         time.sleep(DELAY_SECONDS)
 
     producer.flush()
-    print(f"Pass {pass_num} complete. Sleeping 10s before next pass...")
+    print(f"Pass {pass_num} complete. Sleeping 10s...")
     time.sleep(10)

@@ -1,45 +1,86 @@
-# Real-time Music Analytics Pipeline
+# Lambda Architecture for Music Data Analytics
 
-Pipeline xử lý và phân tích dữ liệu âm nhạc theo thời gian thực, sử dụng Deezer API, Apache Kafka, Spark Structured Streaming, HDFS, Hive và Streamlit.
+Pipeline phân tích dữ liệu âm nhạc theo kiến trúc Lambda, kết hợp Batch Layer (Spark + HDFS + Hive) và Speed Layer (Kafka + Spark Structured Streaming), trực quan hóa qua Streamlit với trang phân tích xu hướng âm nhạc 100 năm (1921→2020).
 
-## Kiến trúc tổng thể
+## Kiến trúc Lambda
 
 ```
-Deezer API
-    │
-    ├── Batch (00_deezer_batch.py)
-    │       └── CSV → HDFS → Spark EDA + KMeans → Parquet → Streamlit
-    │
-    └── Streaming (03_kafka_producer.py)
-            └── CSV tracks → Kafka topic "music-stream"
-                    └── Spark Structured Streaming → HDFS (append)
-                                                        │
-                                                   Streamlit Live Stream
+                    ┌─────────────────────────────────┐
+                    │   Spotify 1921-2020 (~600K tracks)│
+                    └──────────┬──────────────────────┘
+                               │
+              ┌────────────────┼────────────────────┐
+              │ BATCH LAYER    │                     │ SPEED LAYER
+              ▼                │                     ▼
+   00_load_csv.py              │         03_kafka_producer.py
+   (Schema mapping +           │         (CSV → Kafka topic)
+    decade column)             │                     │
+              │                │         03_spark_streaming.py
+   HDFS /music/raw/            │         (Kafka → HDFS append)
+              │                │                     │
+   01_eda.py ─┤                │              HDFS /music/streaming/
+   (EDA + decade stats)        │
+              │
+   02_kmeans.py
+   (KMeans clustering k=3~8)
+              │
+   04_hive_query.py
+   (Temporal analysis via Hive)
+              │
+   05_export.py
+   (HDFS Parquet → /data/*.parquet)
+              │
+              └─────────────────────────► Streamlit Dashboard
+                                          (5 trang, live refresh)
 ```
 
 ## Stack
 
 | Thành phần | Công nghệ |
 |---|---|
-| Nguồn dữ liệu | Deezer API (không cần xác thực) |
+| Dataset | Spotify 1921-2020, ~600K tracks (Kaggle) |
 | Message queue | Apache Kafka + Zookeeper |
-| Xử lý | Apache Spark 3.5 (MLlib, Structured Streaming) |
+| Batch processing | Apache Spark 3.5 (MLlib, SQL) |
+| Speed layer | Spark Structured Streaming |
 | Lưu trữ | Hadoop HDFS (1 namenode + 2 datanode) |
 | Data warehouse | Apache Hive + PostgreSQL metastore |
 | Dashboard | Streamlit (5 trang, tự động refresh theo giây) |
 | Hạ tầng | Docker Compose (12 containers) |
 
-## Cài đặt
+## Dataset
 
-**Yêu cầu:** Docker, Docker Compose
+**Spotify Dataset 1921-2020** từ Kaggle (~600K tracks):
+
+```
+Kaggle: https://www.kaggle.com/datasets/yamaerenay/spotify-dataset-19212020-600k-tracks
+Schema gốc: id, name, artists, release_date, year,
+            acousticness, danceability, duration_ms, energy, explicit,
+            instrumentalness, key, liveness, loudness, mode,
+            popularity, speechiness, tempo, valence
+```
+
+Tải file `tracks.csv` từ Kaggle, đặt tại `data/spotify_tracks.csv`.
+
+Script `00_load_csv.py` sẽ tự động:
+- Rename `id` → `track_id`, `name` → `track_name`
+- Tạo cột `decade` từ `year` (ví dụ: 1993 → "1990s")
+- Loại bỏ duplicates và NaN
+
+## Cài đặt & Khởi động
+
+**Yêu cầu:** Docker, Docker Compose, ~16GB RAM
 
 ```bash
-git clone https://github.com/xuanduc24905-beep/Real-time-Music-Analytics-Pipeline-.git
-cd Real-time-Music-Analytics-Pipeline-
+git clone <repo-url>
+cd Lambda-Architecture-Music-Analytics
+
+# Đặt Spotify dataset tại:
+# data/spotify_tracks.csv
+
 docker compose up -d
 ```
 
-Chờ khoảng 2 phút để tất cả service khởi động xong.
+Chờ ~2 phút để tất cả 12 services khởi động.
 
 ## Chạy pipeline
 
@@ -49,46 +90,49 @@ Chờ khoảng 2 phút để tất cả service khởi động xong.
 ./run_pipeline.sh
 ```
 
-Script tự động chạy toàn bộ 6 bước batch, sau đó hiển thị hướng dẫn chạy streaming.
+Script tự động chạy toàn bộ 6 bước batch, sau đó khởi động streaming.
 
 ### Cách 2 — Thủ công từng bước
 
-**Bước 1 — Cào dữ liệu từ Deezer API:**
+**Bước 1 — Xử lý CSV (mapping schema + tạo decade):**
 ```bash
-docker exec spark-master python /spark-jobs/00_deezer_batch.py
+docker exec spark-master python /spark-jobs/00_load_csv.py
 ```
 
 **Bước 2 — Upload lên HDFS:**
 ```bash
-docker exec namenode bash -c "hdfs dfs -mkdir -p /music/raw && hdfs dfs -put -f /data/deezer_tracks.csv /music/raw/"
+docker exec namenode bash -c \
+  "hdfs dfs -mkdir -p /music/raw && hdfs dfs -put -f /data/spotify_tracks.csv /music/raw/"
 ```
 
 **Bước 3 — EDA + làm sạch dữ liệu:**
 ```bash
-docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/01_eda.py"
+docker exec spark-master bash -c \
+  "spark-submit --master spark://spark-master:7077 /spark-jobs/01_eda.py"
 ```
 
 **Bước 4 — KMeans clustering:**
 ```bash
-docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/02_kmeans.py"
+docker exec spark-master bash -c \
+  "spark-submit --master spark://spark-master:7077 /spark-jobs/02_kmeans.py"
 ```
 
-**Bước 5 — Truy vấn Hive:**
+**Bước 5 — Truy vấn Hive (phân tích thời gian):**
 ```bash
-docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/04_hive_query.py"
+docker exec spark-master bash -c \
+  "spark-submit --master spark://spark-master:7077 /spark-jobs/04_hive_query.py"
 ```
 
 **Bước 6 — Export ra local:**
 ```bash
-docker exec spark-master bash -c "spark-submit --master spark://spark-master:7077 /spark-jobs/05_export.py"
+docker exec spark-master bash -c \
+  "spark-submit --master spark://spark-master:7077 /spark-jobs/05_export.py"
 ```
 
 ## Streaming thời gian thực
 
-Mở 2 terminal sau khi batch pipeline chạy xong:
-
 ```bash
-# Terminal 1 — Kafka producer (đẩy từng track liên tục từ CSV)
+# Terminal 1 — Kafka producer (đẩy 600K tracks liên tục từ CSV, ~100 tracks/giây)
 docker exec -it spark-master python /spark-jobs/03_kafka_producer.py
 
 # Terminal 2 — Spark Structured Streaming ghi xuống HDFS
@@ -98,33 +142,41 @@ docker exec -it spark-master bash -c \
    /spark-jobs/03_spark_streaming.py"
 ```
 
-Producer đọc từ CSV và gửi ~20 track/giây vào Kafka. Spark tiêu thụ và ghi xuống HDFS mỗi giây. Dashboard trang Live Stream tự refresh mỗi giây.
+Dashboard trang **Live Stream** tự refresh mỗi giây từ HDFS.
 
-## Dashboard
-
-Truy cập `http://localhost:8501`
+## Dashboard (http://localhost:8501)
 
 | Trang | Nội dung |
 |---|---|
-| Overview | Thống kê tổng quan, top genre, scatter plot theo cluster |
-| Genre Analysis | Số lượng track và audio features theo từng genre |
-| Cluster Analysis | Kết quả KMeans, hồ sơ âm thanh theo cluster |
-| Top Tracks | Lọc theo genre, xếp hạng theo độ phổ biến |
+| Overview | Thống kê tổng quan, tracks per decade, scatter plot theo cluster |
+| Timeline Analysis | **Xu hướng âm nhạc 1921→2020** (Loudness War, Energy trend, Explicit rise, Radar chart) |
+| Cluster Analysis | KMeans clusters, composition by decade, browse tracks |
+| Top Tracks | Lọc theo decade, xếp hạng theo popularity |
 | Live Stream | Dữ liệu thời gian thực từ HDFS, tự động cập nhật mỗi giây |
+
+## Insights chính
+
+| Insight | Mô tả |
+|---|---|
+| **Loudness War** | Loudness tăng từ ~-20 dBFS (1920s) lên ~-7 dBFS (2010s) do mastering kỹ thuật số |
+| **Energy vs Acoustic** | Energy tăng dần, acousticness giảm mạnh từ 1960s khi điện âm phổ biến |
+| **KMeans = Era** | Cluster tự nhiên tương ứng với các era âm nhạc, không cần nhãn genre |
+| **Explicit Rise** | Tỷ lệ explicit tăng đột biến sau 1990 (hip-hop + streaming) |
+| **Popularity Driver** | Danceability và loudness có tương quan dương mạnh nhất với popularity |
 
 ## Spark Jobs
 
 | File | Mô tả |
 |---|---|
-| `00_deezer_batch.py` | Cào ~12K tracks từ Deezer API (12 thể loại) |
-| `01_eda.py` | EDA, làm sạch dữ liệu, thống kê theo genre → HDFS Parquet |
-| `02_kmeans.py` | KMeans clustering k=3~8 (elbow + silhouette) → HDFS Parquet |
-| `03_kafka_producer.py` | Stream từng track từ CSV vào Kafka liên tục |
-| `03_spark_streaming.py` | Tiêu thụ Kafka, enrich data, ghi append xuống HDFS |
-| `04_hive_query.py` | Truy vấn phân tích qua Hive (top genre, cluster, explicit) |
+| `00_load_csv.py` | Đọc Kaggle CSV, map schema (id→track_id, name→track_name), tạo cột decade |
+| `01_eda.py` | EDA, thống kê theo decade, Loudness War, tương quan popularity → HDFS Parquet |
+| `02_kmeans.py` | KMeans k=3~8 (elbow + silhouette), cluster = era âm nhạc → HDFS Parquet |
+| `03_kafka_producer.py` | Stream 600K tracks từ CSV vào Kafka liên tục (~100 tracks/giây) |
+| `03_spark_streaming.py` | Tiêu thụ Kafka, enrich data (era, popularity_tier), ghi append xuống HDFS |
+| `04_hive_query.py` | 10 analytical queries: Loudness War, energy trend, explicit rise, popularity drivers |
 | `05_export.py` | Export HDFS Parquet → local `/data/` cho Streamlit đọc |
 
-## Giao diện web
+## Web UIs
 
 | Service | URL |
 |---|---|

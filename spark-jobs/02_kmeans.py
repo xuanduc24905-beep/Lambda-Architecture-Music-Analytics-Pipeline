@@ -5,11 +5,11 @@ from pyspark.ml.clustering import KMeans
 from pyspark.ml.evaluation import ClusteringEvaluator
 
 spark = SparkSession.builder \
-    .appName("Music KMeans") \
+    .appName("Spotify KMeans") \
     .master("spark://spark-master:7077") \
-    .config("spark.executor.memory", "8g") \
-    .config("spark.executor.cores", "4") \
-    .config("spark.sql.shuffle.partitions", "16") \
+    .config("spark.executor.memory", "10g") \
+    .config("spark.executor.cores", "2") \
+    .config("spark.sql.shuffle.partitions", "32") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
@@ -17,10 +17,9 @@ spark.sparkContext.setLogLevel("WARN")
 df = spark.read \
     .option("header", "true") \
     .option("inferSchema", "true") \
-    .csv("hdfs://namenode:9000/music/raw/deezer_tracks.csv")
+    .csv("hdfs://namenode:9000/music/raw/spotify_tracks.csv")
 
-if "_c0" in df.columns:
-    df = df.drop("_c0")
+df = df.drop(*[c for c in df.columns if c.startswith("_c")])
 
 feature_cols = ["danceability", "energy", "loudness", "speechiness",
                 "acousticness", "instrumentalness", "liveness", "valence", "tempo"]
@@ -28,7 +27,7 @@ feature_cols = ["danceability", "energy", "loudness", "speechiness",
 for col in feature_cols:
     df = df.withColumn(col, F.col(col).cast("float"))
 
-df = df.dropna(subset=feature_cols)
+df = df.dropna(subset=feature_cols + ["track_id", "year"])
 print(f"Loaded {df.count()} rows")
 
 assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_raw")
@@ -39,7 +38,7 @@ scaler = StandardScaler(inputCol="features_raw", outputCol="features",
 scaler_model = scaler.fit(df_assembled)
 df_scaled = scaler_model.transform(df_assembled)
 
-print("\n--- Elbow Method ---")
+print("\n--- Elbow Method (k=3..8) ---")
 evaluator = ClusteringEvaluator(featuresCol="features", metricName="silhouette")
 silhouette_scores = {}
 
@@ -66,14 +65,21 @@ df_clustered.groupBy("prediction").agg(
     F.round(F.avg("energy"), 3).alias("avg_energy"),
     F.round(F.avg("valence"), 3).alias("avg_valence"),
     F.round(F.avg("tempo"), 1).alias("avg_tempo"),
+    F.round(F.avg("acousticness"), 3).alias("avg_acousticness"),
 ).orderBy("prediction").show()
 
+print("\n--- Cluster by Era ---")
+df_clustered.groupBy("prediction", "decade").agg(
+    F.count("*").alias("count"),
+).orderBy("prediction", "decade").show(100)
+
 df_result = df_clustered.select(
-    "track_id", "track_name", "artists", "album_name",
-    "track_genre", "popularity",
+    "track_id", "track_name", "artists",
+    "year", "decade",
+    "popularity",
     "danceability", "energy", "valence", "tempo",
-    "acousticness", "instrumentalness",
-    F.col("prediction").alias("cluster")
+    "acousticness", "instrumentalness", "loudness",
+    F.col("prediction").alias("cluster"),
 )
 
 df_result.write.mode("overwrite") \
@@ -85,6 +91,8 @@ df_clustered.groupBy("prediction").agg(
     F.round(F.avg("danceability"), 3).alias("avg_danceability"),
     F.round(F.avg("energy"), 3).alias("avg_energy"),
     F.round(F.avg("valence"), 3).alias("avg_valence"),
+    F.round(F.avg("loudness"), 2).alias("avg_loudness"),
+    F.round(F.avg("acousticness"), 3).alias("avg_acousticness"),
 ).write.mode("overwrite") \
  .parquet("hdfs://namenode:9000/music/processed/cluster_stats")
 

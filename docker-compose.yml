@@ -1,7 +1,8 @@
 version: "3.8"
 
 # =============================================================
-#  REAL-TIME MUSIC ANALYTICS PIPELINE (Deezer)
+#  LAMBDA ARCHITECTURE — MUSIC ANALYTICS
+#  Dataset: Spotify 1921-2020 (~600K tracks, Kaggle)
 #  Stack: Hadoop HDFS + YARN + Spark + Kafka + Hive + Streamlit
 #  RAM khuyến nghị: 16GB+ (máy 64GB chạy thoải mái)
 # =============================================================
@@ -35,7 +36,7 @@ services:
       - "9000:9000"   # HDFS RPC (Spark/Hive kết nối vào đây)
     volumes:
       - hadoop_namenode:/hadoop/dfs/name
-      - ./data:/data   # Bind mount: để copy CSV vào đây rồi upload lên HDFS
+      - ./data:/data   # Bind mount: để copy spotify_tracks.csv vào đây rồi upload lên HDFS
     environment:
       - CLUSTER_NAME=music-cluster
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000

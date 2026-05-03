@@ -1,5 +1,5 @@
 -- ================================================================
--- DEEZER MUSIC ANALYTICS — HIVE QUERIES
+-- MUSIC ANALYTICS — HIVE QUERIES
 -- Chạy bằng: beeline -u jdbc:hive2://localhost:10000
 -- ================================================================
 
